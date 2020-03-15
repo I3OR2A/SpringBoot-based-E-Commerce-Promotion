@@ -1,6 +1,7 @@
 package com.imooc.miaosha.controller;
 
 import com.imooc.miaosha.exception.BusinessException;
+import com.imooc.miaosha.service.CacheService;
 import com.imooc.miaosha.service.IItemService;
 import com.imooc.miaosha.service.model.ItemModel;
 import com.imooc.miaosha.vo.CommonReturnType;
@@ -28,6 +29,9 @@ public class ItemController extends BaseController {
     @Autowired
     private RedisTemplate redisTemplate;
 
+    @Autowired
+    private CacheService cacheService;
+
     //创建商品的controller
     @RequestMapping(value = "/create", method = {RequestMethod.POST}, consumes = {CONTENT_TYPE_FORMED})
     @ResponseBody
@@ -54,20 +58,31 @@ public class ItemController extends BaseController {
     @RequestMapping(value = "/get", method = {RequestMethod.GET})
     @ResponseBody
     public CommonReturnType getItem(@RequestParam(name = "id") Integer id) {
+        ItemModel itemModel = null;
 
-        ItemModel itemModel = (ItemModel) redisTemplate.opsForValue().get("item_" + id);
+        //先取本地缓存
+        itemModel = (ItemModel) cacheService.getFromCommonCache("item_"+id);
 
-        //若redis内不存在对应的itemModel,则访问下游service
-        if (itemModel == null) {
-            itemModel = itemService.getItemById(id);
-            //设置itemModel到redis内
-            redisTemplate.opsForValue().set("item_" + id, itemModel);
-            redisTemplate.expire("item_" + id, 10, TimeUnit.MINUTES);
+        if(itemModel == null){
+            //根据商品的id到redis内获取
+            itemModel = (ItemModel) redisTemplate.opsForValue().get("item_"+id);
+
+            //若redis内不存在对应的itemModel,则访问下游service
+            if(itemModel == null){
+                itemModel = itemService.getItemById(id);
+                //设置itemModel到redis内
+                redisTemplate.opsForValue().set("item_"+id,itemModel);
+                redisTemplate.expire("item_"+id,10, TimeUnit.MINUTES);
+            }
+            //填充本地缓存
+            cacheService.setCommonCache("item_"+id,itemModel);
         }
 
-        ItemVo itemVo = convertVOFromModel(itemModel);
 
-        return CommonReturnType.create(itemVo);
+        ItemVo itemVO = convertVOFromModel(itemModel);
+
+        return CommonReturnType.create(itemVO);
+
 
     }
 
